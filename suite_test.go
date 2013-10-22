@@ -3,6 +3,7 @@ package sqs_test
 import (
 	"fmt"
 	. "launchpad.net/gocheck"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -84,6 +85,7 @@ func (s *TestHTTPServer) FlushRequests() {
 }
 
 func (s *TestHTTPServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	log.Println(req)
 	s.request <- req
 	var resp *testResponse
 	select {

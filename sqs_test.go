@@ -9,80 +9,89 @@ import (
 var _ = Suite(&S{})
 
 type S struct {
-	//testServer.PrepareResponse(200, nil, TestChangeMessageVisibilityXmlOK)
-	HTTPSuite
 	sqs *sqs.SQS
 }
 
 func (s *S) SetUpSuite(c *C) {
-	s.HTTPSuite.SetUpSuite(c)
 	auth := aws.Auth{"abc", "123"}
-	s.sqs = sqs.New(auth, aws.Region{SQSEndpoint: testServer.URL})
+	s.sqs = sqs.New(auth, aws.Region{SQSEndpoint: "http://sqs.us-east-1.amazonaws.com"})
 }
 
-func (s *S) TestCreateQueue(c *C) {
-	testServer.PrepareResponse(200, nil, TestCreateQueueXmlOK)
-
+func createQueue(s *S) (queue *sqs.Queue, err error) {
 	timeOutAttribute := sqs.Attribute{"VisibilityTimeout", "60"}
 	maxMessageSizeAttribute := sqs.Attribute{"MaximumMessageSize", "65536"}
 	messageRetentionAttribute := sqs.Attribute{"MessageRetentionPeriod", "345600"}
-	q, err := s.sqs.CreateQueue("testQueue", []sqs.Attribute{timeOutAttribute, maxMessageSizeAttribute, messageRetentionAttribute})
-	req := testServer.WaitRequest()
+	delaySeconds := sqs.Attribute{"DelaySeconds", "60"}
+	return s.sqs.CreateQueue("testQueue", []sqs.Attribute{timeOutAttribute, maxMessageSizeAttribute, messageRetentionAttribute, delaySeconds})
+}
 
-	c.Assert(req.Method, Equals, "GET")
-	c.Assert(req.URL.Path, Equals, "/")
-	c.Assert(req.Header["Date"], Not(Equals), "")
+func deleteQueue(s *S) error {
+	q, err := s.sqs.GetQueue("testQueue")
+	_, err = q.Delete()
+	return err
+}
+
+func (s *S) TestCreateAndDeleteQueue(c *C) {
+	q, err := createQueue(s)
+
 	c.Assert(q.Url, Equals, "http://sqs.us-east-1.amazonaws.com/123456789012/testQueue")
 	c.Assert(err, IsNil)
+
+	deleteQueue(s)
 }
 
 func (s *S) TestListQueues(c *C) {
-	testServer.PrepareResponse(200, nil, TestListQueuesXmlOK)
+	createQueue(s)
 
 	resp, err := s.sqs.ListQueues()
-	req := testServer.WaitRequest()
 
-	c.Assert(req.Method, Equals, "GET")
-	c.Assert(req.URL.Path, Equals, "/")
-	c.Assert(req.Header["Date"], Not(Equals), "")
 	c.Assert(len(resp.QueueUrl), Not(Equals), 0)
 	c.Assert(resp.QueueUrl[0], Equals, "http://sqs.us-east-1.amazonaws.com/123456789012/testQueue")
-	c.Assert(resp.ResponseMetadata.RequestId, Equals, "725275ae-0b9b-4762-b238-436d7c65a1ac")
 	c.Assert(err, IsNil)
+
+	deleteQueue(s)
 }
 
 func (s *S) TestGetQueueUrl(c *C) {
-	testServer.PrepareResponse(200, nil, TestGetQueueUrlXmlOK)
-
+	createQueue(s)
 	resp, err := s.sqs.GetQueueUrl("testQueue")
-	req := testServer.WaitRequest()
 
-	c.Assert(req.Method, Equals, "GET")
-	c.Assert(req.URL.Path, Equals, "/")
-	c.Assert(req.Header["Date"], Not(Equals), "")
 	c.Assert(resp.QueueUrl, Equals, "http://sqs.us-east-1.amazonaws.com/123456789012/testQueue")
-	c.Assert(resp.ResponseMetadata.RequestId, Equals, "470a6f13-2ed9-4181-ad8a-2fdea142988e")
 	c.Assert(err, IsNil)
+
+	deleteQueue(s)
 }
 
 func (s *S) TestChangeMessageVisibility(c *C) {
-	//testServer.PrepareResponse(200, nil, TestChangeMessageVisibilityXmlOK)
-	testServer.PrepareResponse(200, nil, TestCreateQueueXmlOK)
+	q, err := createQueue(s)
 
-	timeOutAttribute := sqs.Attribute{"VisibilityTimeout", "60"}
-	maxMessageSizeAttribute := sqs.Attribute{"MaximumMessageSize", "65536"}
-	messageRetentionAttribute := sqs.Attribute{"MessageRetentionPeriod", "345600"}
-	q, err := s.sqs.CreateQueue("testQueue", []sqs.Attribute{timeOutAttribute, maxMessageSizeAttribute, messageRetentionAttribute})
-	req := testServer.WaitRequest()
-
-	c.Assert(req.Method, Equals, "GET")
-	testServer.PrepareResponse(200, nil, TestChangeMessageVisibilityXmlOK)
-	resp, err := q.ChangeMessageVisibility("MbZj6wDWli%2BJvwwJaBV%2B3dcjk2YW2vA3%2BSTFFljT", 0)
-	testServer.WaitRequest()
+	_, err = q.ChangeMessageVisibility("MbZj6wDWli%2BJvwwJaBV%2B3dcjk2YW2vA3%2BSTFFljT", 0)
 	c.Assert(err, IsNil)
-	c.Assert(resp.ResponseMetadata.RequestId, Equals, "6a7a282a-d013-4a59-aba9-335b0fa48bed")
+
+	deleteQueue(s)
 }
 
+func (s *S) TestSendReceiveMessage(c *C) {
+	q, err := createQueue(s)
+
+	resp, err := q.ReceiveMessage([]string{"All"}, 5, 15)
+	c.Assert(err, IsNil)
+	c.Assert(len(resp.Messages), Equals, 0)
+
+	for i := 0; i < 100; i++ {
+		_, err = q.SendMessage("This is a Message")
+	}
+
+	for i := 0; i < 20; i++ {
+		resp, err := q.ReceiveMessage([]string{"All"}, 5, 15)
+		c.Assert(err, IsNil)
+		c.Assert(len(resp.Messages), Equals, 5)
+	}
+
+	deleteQueue(s)
+}
+
+/*
 func (s *S) TestChangeMessageVisibilityBatch(c *C) {
 	testServer.PrepareResponse(200, nil, TestCreateQueueXmlOK)
 
@@ -103,19 +112,7 @@ func (s *S) TestChangeMessageVisibilityBatch(c *C) {
 	c.Assert(resp.Id[1], Equals, "change_visibility_msg_3")
 }
 
-func (s *S) TestReceiveMessage(c *C) {
-	testServer.PrepareResponse(200, nil, TestGetQueueUrlXmlOK)
 
-	q, err := s.sqs.GetQueue("testQueue")
-	testServer.WaitRequest()
-
-	testServer.PrepareResponse(200, nil, TestReceiveMessageXmlOK)
-
-	resp, err := q.ReceiveMessage([]string{"All"}, 5, 15)
-	testServer.WaitRequest()
-	c.Assert(err, IsNil)
-	c.Assert(len(resp.Messages), Not(Equals), 0)
-}
 
 func (s *S) TestDeleteMessage(c *C) {
 	testServer.PrepareResponse(200, nil, TestGetQueueUrlXmlOK)
@@ -150,49 +147,8 @@ func (s *S) TestDeleteMessageBatch(c *C) {
 	c.Assert(resp.ResponseMetadata.RequestId, Equals, "d6f86b7a-74d1-4439-b43f-196a1e29cd85")
 }
 
-func (s *S) TestAddPermission(c *C) {
-	testServer.PrepareResponse(200, nil, TestGetQueueUrlXmlOK)
 
-	q, err := s.sqs.GetQueue("testQueue")
-	testServer.WaitRequest()
 
-	testServer.PrepareResponse(200, nil, TestAddPermissionXmlOK)
-	resp, err := q.AddPermission("testLabel", []sqs.AccountPermission{sqs.AccountPermission{"125074342641", "SendMessage"}, sqs.AccountPermission{"125074342642", "ReceiveMessage"}})
-	testServer.WaitRequest()
-
-	c.Assert(err, IsNil)
-	c.Assert(resp.ResponseMetadata.RequestId, Equals, "9a285199-c8d6-47c2-bdb2-314cb47d599d")
-}
-
-func (s *S) TestRemovePermission(c *C) {
-	testServer.PrepareResponse(200, nil, TestGetQueueUrlXmlOK)
-
-	q, err := s.sqs.GetQueue("testQueue")
-	testServer.WaitRequest()
-
-	testServer.PrepareResponse(200, nil, TestRemovePermissionXmlOK)
-	resp, err := q.RemovePermission("testLabel")
-	testServer.WaitRequest()
-
-	c.Assert(err, IsNil)
-	c.Assert(resp.ResponseMetadata.RequestId, Equals, "f8bdb362-6616-42c0-977a-ce9a8bcce3bb")
-}
-
-func (s *S) TestSendMessage(c *C) {
-	testServer.PrepareResponse(200, nil, TestGetQueueUrlXmlOK)
-
-	q, err := s.sqs.GetQueue("testQueue")
-	testServer.WaitRequest()
-
-	testServer.PrepareResponse(200, nil, TestSendMessageXmlOK)
-
-	resp, err := q.SendMessage("This is a Message")
-	testServer.WaitRequest()
-	c.Assert(err, IsNil)
-	c.Assert(resp.SendMessageResult.MD5OfMessageBody, Equals, "fafb00f5732ab283681e124bf8747ed1")
-	c.Assert(resp.SendMessageResult.MessageId, Equals, "5fea7756-0ea4-451a-a703-a558b933e274")
-	c.Assert(resp.ResponseMetadata.RequestId, Equals, "27daac76-34dd-47df-bd01-1f6e873584a0")
-}
 
 func (s *S) TestSendMessageWithDelay(c *C) {
 	testServer.PrepareResponse(200, nil, TestGetQueueUrlXmlOK)
@@ -225,64 +181,56 @@ func (s *S) TestSendMessageBatch(c *C) {
 	c.Assert(len(resp.SendMessageBatchResult.Entries), Equals, 2)
 	c.Assert(resp.SendMessageBatchResult.Entries[0].Id, Equals, "test_msg_001")
 }
+*/
 
 func (s *S) TestGetQueueAttributes(c *C) {
-	testServer.PrepareResponse(200, nil, TestGetQueueUrlXmlOK)
 
-	q, err := s.sqs.GetQueue("testQueue")
-	testServer.WaitRequest()
-
-	testServer.PrepareResponse(200, nil, TestGetQueueAttributesAllXmlOK)
+	q, err := createQueue(s)
 
 	resp, err := q.GetQueueAttributes([]string{"ALL"})
-	testServer.WaitRequest()
 
 	c.Assert(err, IsNil)
-	c.Assert(len(resp.Attributes), Equals, 8)
-	c.Assert(resp.Attributes[0].Name, Equals, "VisibilityTimeout")
-	c.Assert(resp.Attributes[0].Value, Equals, "30")
+	c.Assert(len(resp.Attributes), Equals, 4)
+
+	deleteQueue(s)
+}
+
+func (s *S) TestAddPermission(c *C) {
+	q, err := createQueue(s)
+	_, err = q.AddPermission("testLabel", []sqs.AccountPermission{sqs.AccountPermission{"125074342641", "SendMessage"}, sqs.AccountPermission{"125074342642", "ReceiveMessage"}})
+
+	c.Assert(err, IsNil)
+
+	deleteQueue(s)
+}
+
+func (s *S) TestRemovePermission(c *C) {
+	q, err := createQueue(s)
+	_, err = q.AddPermission("testLabel", []sqs.AccountPermission{sqs.AccountPermission{"125074342641", "SendMessage"}, sqs.AccountPermission{"125074342642", "ReceiveMessage"}})
+	_, err = q.RemovePermission("testLabel")
+
+	c.Assert(err, IsNil)
+	deleteQueue(s)
 }
 
 func (s *S) TestGetQueueAttributesSelective(c *C) {
-	testServer.PrepareResponse(200, nil, TestGetQueueUrlXmlOK)
-
-	q, err := s.sqs.GetQueue("testQueue")
-	testServer.WaitRequest()
-
-	testServer.PrepareResponse(200, nil, TestGetQueueAttributesSelectiveXmlOK)
-
+	q, err := createQueue(s)
 	resp, err := q.GetQueueAttributes([]string{"VisibilityTimeout", "DelaySeconds"})
-	testServer.WaitRequest()
 
 	c.Assert(err, IsNil)
 	c.Assert(len(resp.Attributes), Equals, 2)
-	c.Assert(resp.Attributes[0].Name, Equals, "VisibilityTimeout")
-	c.Assert(resp.Attributes[0].Value, Equals, "30")
-	c.Assert(resp.Attributes[1].Name, Equals, "DelaySeconds")
-	c.Assert(resp.Attributes[1].Value, Equals, "0")
-}
+	// c.Assert(resp.Attributes[0].Name, Equals, "VisibilityTimeout")
+	c.Assert(resp.Attributes[0].Value, Equals, "60")
+	// c.Assert(resp.Attributes[1].Name, Equals, "DelaySeconds")
+	c.Assert(resp.Attributes[1].Value, Equals, "60")
 
-func (s *S) TestDeleteQueue(c *C) {
-	testServer.PrepareResponse(200, nil, TestGetQueueUrlXmlOK)
-
-	q, err := s.sqs.GetQueue("testQueue")
-	testServer.WaitRequest()
-
-	testServer.PrepareResponse(200, nil, TestDeleteQueueXmlOK)
-	resp, err := q.Delete()
-	testServer.WaitRequest()
-
-	c.Assert(err, IsNil)
-	c.Assert(resp.ResponseMetadata.RequestId, Equals, "6fde8d1e-52cd-4581-8cd9-c512f4c64223")
+	deleteQueue(s)
 }
 
 func (s *S) TestSetQueueAttributes(c *C) {
-	testServer.PrepareResponse(200, nil, TestGetQueueUrlXmlOK)
 
-	q, err := s.sqs.GetQueue("testQueue")
-	testServer.WaitRequest()
+	q, err := createQueue(s)
 
-	testServer.PrepareResponse(200, nil, TestSetQueueAttributesXmlOK)
 	var policyStr = `
   {
         "Version":"2008-10-17",
@@ -295,12 +243,12 @@ func (s *S) TestSetQueueAttributes(c *C) {
              "Action":"SQS:ReceiveMessage",
              "Resource":"arn:aws:sqs:us-east-1:123456789012:testQueue"
               }
-         ]    
+         ]
    }
   `
-	resp, err := q.SetQueueAttributes(sqs.Attribute{"Policy", policyStr})
-	testServer.WaitRequest()
+	_, err = q.SetQueueAttributes(sqs.Attribute{"Policy", policyStr})
 
 	c.Assert(err, IsNil)
-	c.Assert(resp.ResponseMetadata.RequestId, Equals, "e5cca473-4fc0-4198-a451-8abb94d02c75")
+
+	deleteQueue(s)
 }
