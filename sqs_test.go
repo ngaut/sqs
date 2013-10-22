@@ -4,6 +4,7 @@ import (
 	"../sqs"
 	"launchpad.net/goamz/aws"
 	. "launchpad.net/gocheck"
+	"strconv"
 )
 
 var _ = Suite(&S{})
@@ -71,22 +72,75 @@ func (s *S) TestChangeMessageVisibility(c *C) {
 	deleteQueue(s)
 }
 
-func (s *S) TestSendReceiveMessage(c *C) {
+func (s *S) TestSendReceiveDeleteMessage(c *C) {
 	q, err := createQueue(s)
 
 	resp, err := q.ReceiveMessage([]string{"All"}, 5, 15)
 	c.Assert(err, IsNil)
 	c.Assert(len(resp.Messages), Equals, 0)
 
-	for i := 0; i < 100; i++ {
+	total := 100
+	step := 5
+
+	for i := 0; i < total; i++ {
 		_, err = q.SendMessage("This is a Message")
 	}
 
-	for i := 0; i < 20; i++ {
-		resp, err := q.ReceiveMessage([]string{"All"}, 5, 15)
+	for i := 0; i < total/step; i++ {
+		resp, err := q.ReceiveMessage([]string{"All"}, step, 15)
 		c.Assert(err, IsNil)
-		c.Assert(len(resp.Messages), Equals, 5)
+		c.Assert(len(resp.Messages), Equals, step)
+
+		for _, v := range resp.Messages {
+			_, err := q.DeleteMessage(v.ReceiptHandle)
+			c.Assert(err, IsNil)
+		}
+
 	}
+
+	resp, err = q.ReceiveMessage([]string{"All"}, step, 15)
+	c.Assert(err, IsNil)
+	c.Assert(len(resp.Messages), Equals, 0)
+
+	deleteQueue(s)
+}
+
+func (s *S) TestDeleteMessageBatch(c *C) {
+
+	q, err := createQueue(s)
+
+	resp, err := q.ReceiveMessage([]string{"All"}, 5, 15)
+	c.Assert(err, IsNil)
+	c.Assert(len(resp.Messages), Equals, 0)
+
+	total := 100
+	step := 5
+
+	for i := 0; i < total; i++ {
+		_, err = q.SendMessage("This is a Message")
+	}
+
+	for i := 0; i < total/step; i++ {
+		resp, err := q.ReceiveMessage([]string{"All"}, step, 15)
+		c.Assert(err, IsNil)
+		c.Assert(len(resp.Messages), Equals, step)
+
+		deleteMessageBatch := make([]sqs.DeleteMessageBatch, 0)
+
+		for _, v := range resp.Messages {
+			deleteMessageBatch = append(deleteMessageBatch, sqs.DeleteMessageBatch{Id: strconv.Itoa(i), ReceiptHandle: v.ReceiptHandle})
+		}
+
+		{
+			_, err := q.DeleteMessageBatch(deleteMessageBatch)
+			c.Assert(err, IsNil)
+		}
+
+	}
+
+	resp, err = q.ReceiveMessage([]string{"All"}, step, 15)
+	c.Assert(err, IsNil)
+	c.Assert(len(resp.Messages), Equals, 0)
 
 	deleteQueue(s)
 }
@@ -111,42 +165,6 @@ func (s *S) TestChangeMessageVisibilityBatch(c *C) {
 	c.Assert(resp.Id[0], Equals, "change_visibility_msg_2")
 	c.Assert(resp.Id[1], Equals, "change_visibility_msg_3")
 }
-
-
-
-func (s *S) TestDeleteMessage(c *C) {
-	testServer.PrepareResponse(200, nil, TestGetQueueUrlXmlOK)
-
-	q, err := s.sqs.GetQueue("testQueue")
-	testServer.WaitRequest()
-
-	testServer.PrepareResponse(200, nil, TestDeleteMessageXmlOK)
-
-	resp, err := q.DeleteMessage("MbZj6wDWli%2BJvwwJaBV%2B3dcjk2YW2vA3%2BSTFFljTM8tJJg6HRG6PYSasuWXPJB%2BCwLj1FjgXUv1uSj1gUPAWV66FU/WeR4mq2OKpEGYWbnLmpRCJVAyeMjeU5ZBdtcQ%2BQEauMZc8ZRv37sIW2iJKq3M9MFx1YvV11A2x/KSbkJ0=")
-	testServer.WaitRequest()
-	c.Assert(err, IsNil)
-	c.Assert(resp.ResponseMetadata.RequestId, Equals, "b5293cb5-d306-4a17-9048-b263635abe42")
-}
-
-func (s *S) TestDeleteMessageBatch(c *C) {
-	testServer.PrepareResponse(200, nil, TestGetQueueUrlXmlOK)
-
-	q, err := s.sqs.GetQueue("testQueue")
-	testServer.WaitRequest()
-
-	testServer.PrepareResponse(200, nil, TestDeleteMessageBatchXmlOK)
-
-	deleteMessageBatch := []sqs.DeleteMessageBatch{sqs.DeleteMessageBatch{Id: "msg1", ReceiptHandle: "gfk0T0R0waama4fVFffkjPQrrvzMrOg0fTFk2LxT33EuB8wR0ZCFgKWyXGWFoqqpCIiprQUEhir%2F5LeGPpYTLzjqLQxyQYaQALeSNHb0us3uE84uujxpBhsDkZUQkjFFkNqBXn48xlMcVhTcI3YLH%2Bd%2BIqetIOHgBCZAPx6r%2B09dWaBXei6nbK5Ygih21DCDdAwFV68Jo8DXhb3ErEfoDqx7vyvC5nCpdwqv%2BJhU%2FTNGjNN8t51v5c%2FAXvQsAzyZVNapxUrHIt4NxRhKJ72uICcxruyE8eRXlxIVNgeNP8ZEDcw7zZU1Zw%3D%3D"}, sqs.DeleteMessageBatch{Id: "msg2", ReceiptHandle: "gfk0T0R0waama4fVFffkjKzmhMCymjQvfTFk2LxT33G4ms5subrE0deLKWSscPU1oD3J9zgeS4PQQ3U30qOumIE6AdAv3w%2F%2Fa1IXW6AqaWhGsEPaLm3Vf6IiWqdM8u5imB%2BNTwj3tQRzOWdTOePjOjPcTpRxBtXix%2BEvwJOZUma9wabv%2BSw6ZHjwmNcVDx8dZXJhVp16Bksiox%2FGrUvrVTCJRTWTLc59oHLLF8sEkKzRmGNzTDGTiV%2BYjHfQj60FD3rVaXmzTsoNxRhKJ72uIHVMGVQiAGgB%2BqAbSqfKHDQtVOmJJgkHug%3D%3D"}}
-	resp, err := q.DeleteMessageBatch(deleteMessageBatch)
-	testServer.WaitRequest()
-
-	c.Assert(err, IsNil)
-	c.Assert(len(resp.DeleteMessageBatchResult.Ids), Equals, 2)
-	c.Assert(resp.DeleteMessageBatchResult.Ids[0], Equals, "msg1")
-	c.Assert(resp.DeleteMessageBatchResult.Ids[1], Equals, "msg2")
-	c.Assert(resp.ResponseMetadata.RequestId, Equals, "d6f86b7a-74d1-4439-b43f-196a1e29cd85")
-}
-
 
 
 
