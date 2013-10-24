@@ -12,13 +12,15 @@ import (
 	"launchpad.net/goamz/aws"
 	. "launchpad.net/gocheck"
 	"fmt"
-	"testing"
+	//"testing"
+	"time"
 )
 
+/*
 func Test(t *testing.T) {
 	TestingT(t)
 }
-
+*/
 var _ = Suite(&BatchSuite{})
 
 type BatchSuite struct {
@@ -35,12 +37,12 @@ func (s *BatchSuite) TearDownTest(c *C) {
 	fmt.Println("fdTear down")
 }
 
-func (self *BatchSuite) createQueue() (queue *sqs.Queue, err error) {
+func (self *BatchSuite) createQueue(qName string) (queue *sqs.Queue, err error) {
 	timeOutAttribute := sqs.Attribute{"VisibilityTimeout", "60"}
     maxMessageSizeAttribute := sqs.Attribute{"MaximumMessageSize", "65536"}
     messageRetentionAttribute := sqs.Attribute{"MessageRetentionPeriod", "345600"}
     delaySeconds := sqs.Attribute{"DelaySeconds", "60"}
-    return self.sqs.CreateQueue("testQueue", []sqs.Attribute{timeOutAttribute, maxMessageSizeAttribute, messageRetentionAttribute, delaySeconds})
+    return self.sqs.CreateQueue(qName, []sqs.Attribute{timeOutAttribute, maxMessageSizeAttribute, messageRetentionAttribute, delaySeconds})
 }
 
 func (s *BatchSuite) deleteQueue(qName string ) error {
@@ -54,24 +56,64 @@ func (s *BatchSuite) Test(c *C){
 }
 
 func (self *BatchSuite) TestSendMessageBatch(c *C) {
+	qName := fmt.Sprintf("TestSendMessageBatch%v",time.Now().UnixNano())
+	q, err := self.createQueue(qName)
+	defer self.deleteQueue(qName)
+
 	testNum := 10
-	q, err := self.createQueue()
 	var sendMessageBatchRequests []sqs.SendMessageBatchRequestEntry
-	for i := 0; i < testNum; i ++ {
-		sendMessage := sqs.SendMessageBatchRequestEntry{
-	Id:fmt.Sprintf("batchtest%d",i),
-	MessageBody:"hello",
-		DelaySeconds:10,
-	}
+		for i := 0; i < testNum; i ++ {
+			sendMessage := sqs.SendMessageBatchRequestEntry{
+			Id:fmt.Sprintf("batchtest%d",i),
+			MessageBody:"hello",
+			DelaySeconds:0,
+		}
 
-	sendMessageBatchRequests = append(sendMessageBatchRequests,sendMessage)
+	    sendMessageBatchRequests = append(sendMessageBatchRequests,sendMessage)
     }
-
 	response,err := q.SendMessageBatch(sendMessageBatchRequests)
 	c.Assert(err,IsNil)
 	fmt.Println(response)
 
+	for {
+	   res,err := q.ReceiveMessage(nil,10,10)
+	   c.Assert(err,IsNil)
+	   if len(res.Messages) == 0 {
+		   break
+	   }
+	   c.Assert(len(res.Messages),Equals,10)
+	}
 
+
+	//test delay second
+	sendMessageBatchRequests = make([]sqs.SendMessageBatchRequestEntry,0)
+	for i := 0; i < testNum; i ++ {
+		sendMessage := sqs.SendMessageBatchRequestEntry{
+			Id:fmt.Sprintf("batchtest%d",i),
+			MessageBody:"hello",
+			DelaySeconds:i,
+		}
+
+		sendMessageBatchRequests = append(sendMessageBatchRequests,sendMessage)
+	}
+	response,err = q.SendMessageBatch(sendMessageBatchRequests)
+	c.Assert(err,IsNil)
+	fmt.Println(response)
+
+	id := 0
+	for {
+		if id == testNum {
+			break
+		}
+		res,err := q.ReceiveMessage(nil,1,10)
+		c.Assert(err,IsNil)
+		if len(res.Messages) == 0 {
+			break
+		}
+		c.Assert(len(res.Messages),Equals,1)
+		c.Assert(res.Messages[0].Body,Equals,sendMessageBatchRequests[id].MessageBody)
+		id ++
+	}
 }
 
 
