@@ -1,8 +1,8 @@
-package sqs_test
-
+package test
 import (
+	_"sdk/sqs/sqs"
 	"fmt"
-	. "launchpad.net/gocheck"
+	."launchpad.net/gocheck"
 	"log"
 	"net/http"
 	"net/url"
