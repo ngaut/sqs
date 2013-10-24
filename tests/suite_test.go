@@ -1,12 +1,13 @@
-package test
+package tests
+
 import (
-	_"sdk/sqs/sqs"
 	"fmt"
-	."launchpad.net/gocheck"
+	. "launchpad.net/gocheck"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
+	_ "sdk/sqs/sqs"
 	"testing"
 	"time"
 )
