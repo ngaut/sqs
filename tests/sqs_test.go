@@ -1,25 +1,25 @@
-package test
+package tests
 
 import (
-	"sdk/sqs/sqs"
+	"fmt"
 	"launchpad.net/goamz/aws"
 	. "launchpad.net/gocheck"
+	"sdk/sqs/sqs"
 	"strconv"
-	"fmt"
 	"time"
 )
 
 var _ = Suite(&S{})
 
 type S struct {
-	sqs *sqs.SQS
+	sqs   *sqs.SQS
 	qName string
 }
 
 func (s *S) SetUpSuite(c *C) {
 	auth := aws.Auth{"abc", "123"}
 	s.sqs = sqs.New(auth, aws.Region{SQSEndpoint: "http://sqs.us-east-1.amazonaws.com"})
-	qName := fmt.Sprintf("testqueue%v",time.Now())
+	qName := fmt.Sprintf("testqueue%v", time.Now())
 	fmt.Println(qName)
 }
 
@@ -35,45 +35,44 @@ func (self *S) createQueue(qName string) (queue *sqs.Queue, err error) {
 
 func (self *S) deleteQueue(qName string) error {
 	q, err := self.sqs.GetQueue(qName)
-	_,err = q.Delete()
+	_, err = q.Delete()
 	return err
 }
 
-
 func (s *S) TestCreateAndDeleteQueue(c *C) {
-	qName := fmt.Sprintf("CreateAndDeleteQueue%v",time.Now().UnixNano())
+	qName := fmt.Sprintf("CreateAndDeleteQueue%v", time.Now().UnixNano())
 	q, err := s.createQueue(qName)
 
-	c.Assert(q.Url, Equals, fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName))
+	c.Assert(q.Url, Equals, fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s", qName))
 	c.Assert(err, IsNil)
 
 	s.deleteQueue(qName)
 }
 
 func (s *S) TestListQueues(c *C) {
-	qName := fmt.Sprintf("TestListQueues%v",time.Now().UnixNano())
+	qName := fmt.Sprintf("TestListQueues%v", time.Now().UnixNano())
 	_, err := s.createQueue(qName)
 
 	resp, err := s.sqs.ListQueues()
 	c.Assert(err, IsNil)
 	c.Assert(len(resp.QueueUrl), Not(Equals), 0)
-	single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName)
+	single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s", qName)
 	exist := false
-	for _,one_url := range resp.QueueUrl {
+	for _, one_url := range resp.QueueUrl {
 		if one_url == single_url {
 			exist = true
 			break
 		}
 	}
 
-	c.Assert(exist,Equals,true)
+	c.Assert(exist, Equals, true)
 	s.deleteQueue(qName)
 }
 
 func (s *S) TestGetQueueUrl(c *C) {
-	qName := fmt.Sprintf("TestGetQueueUrl%v",time.Now().UnixNano())
+	qName := fmt.Sprintf("TestGetQueueUrl%v", time.Now().UnixNano())
 	_, err := s.createQueue(qName)
-	single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName)
+	single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s", qName)
 	defer s.deleteQueue(qName)
 
 	resp, err := s.sqs.GetQueueUrl(qName)
@@ -82,17 +81,17 @@ func (s *S) TestGetQueueUrl(c *C) {
 }
 
 func (s *S) TestChangeMessageVisibility(c *C) {
-	qName := fmt.Sprintf("TestChangeMessageVisibility%v",time.Now().UnixNano())
+	qName := fmt.Sprintf("TestChangeMessageVisibility%v", time.Now().UnixNano())
 	q, err := s.createQueue(qName)
 	//single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName)
 	defer s.deleteQueue(qName)
 
-	_, err = q.ChangeMessageVisibility("MbZj6wDWli%2BJvwwJaBV%2B3dcjk2YW2vA3%2BSTFFljT", 0)  //TODO
+	_, err = q.ChangeMessageVisibility("MbZj6wDWli%2BJvwwJaBV%2B3dcjk2YW2vA3%2BSTFFljT", 0) //TODO
 	c.Assert(err, IsNil)
 }
 
 func (s *S) TestSendReceiveDeleteMessage(c *C) {
-	qName := fmt.Sprintf("TestSendReceiveDeleteMessage%v",time.Now().UnixNano())
+	qName := fmt.Sprintf("TestSendReceiveDeleteMessage%v", time.Now().UnixNano())
 	q, err := s.createQueue(qName)
 	//single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName)
 	defer s.deleteQueue(qName)
@@ -128,7 +127,7 @@ func (s *S) TestSendReceiveDeleteMessage(c *C) {
 
 func (s *S) TestDeleteMessageBatch(c *C) {
 
-	qName := fmt.Sprintf("TestDeleteMessageBatch%v",time.Now().UnixNano())
+	qName := fmt.Sprintf("TestDeleteMessageBatch%v", time.Now().UnixNano())
 	q, err := s.createQueue(qName)
 	//single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName)
 	defer s.deleteQueue(qName)
@@ -207,11 +206,9 @@ func (s *S) TestSendMessageWithDelay(c *C) {
 }
 */
 
-
-
 func (s *S) TestGetQueueAttributes(c *C) {
 
-	qName := fmt.Sprintf("TestGetQueueAttributes%v",time.Now().UnixNano())
+	qName := fmt.Sprintf("TestGetQueueAttributes%v", time.Now().UnixNano())
 	q, err := s.createQueue(qName)
 	//single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName)
 	defer s.deleteQueue(qName)
@@ -224,7 +221,7 @@ func (s *S) TestGetQueueAttributes(c *C) {
 }
 
 func (s *S) TestAddPermission(c *C) {
-	qName := fmt.Sprintf("TestAddPermission%v",time.Now().UnixNano())
+	qName := fmt.Sprintf("TestAddPermission%v", time.Now().UnixNano())
 	q, err := s.createQueue(qName)
 	//single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName)
 	defer s.deleteQueue(qName)
@@ -236,7 +233,7 @@ func (s *S) TestAddPermission(c *C) {
 }
 
 func (s *S) TestRemovePermission(c *C) {
-	qName := fmt.Sprintf("TestRemovePermission%v",time.Now().UnixNano())
+	qName := fmt.Sprintf("TestRemovePermission%v", time.Now().UnixNano())
 	q, err := s.createQueue(qName)
 	//single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName)
 	defer s.deleteQueue(qName)
@@ -248,7 +245,7 @@ func (s *S) TestRemovePermission(c *C) {
 }
 
 func (s *S) TestGetQueueAttributesSelective(c *C) {
-	qName := fmt.Sprintf("TestGetQueueAttributesSelective%v",time.Now().UnixNano())
+	qName := fmt.Sprintf("TestGetQueueAttributesSelective%v", time.Now().UnixNano())
 	q, err := s.createQueue(qName)
 	//single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName)
 	defer s.deleteQueue(qName)
