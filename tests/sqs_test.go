@@ -86,8 +86,33 @@ func (s *S) TestChangeMessageVisibility(c *C) {
 	//single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName)
 	defer s.deleteQueue(qName)
 
-	_, err = q.ChangeMessageVisibility("MbZj6wDWli%2BJvwwJaBV%2B3dcjk2YW2vA3%2BSTFFljT", 0) //TODO
-	c.Assert(err, IsNil)
+	_, err = q.SendMessage("Hello World")
+	c.Assert(err,IsNil)
+
+	res,err := q.ReceiveMessage([]string{"All"}, 1, 15)
+	c.Assert(err,IsNil)
+
+	c.Assert(len(res.Messages)>0, Equals, true)
+
+	for _,mess := range res.Messages {
+		_, err = q.ChangeMessageVisibility(mess.ReceiptHandle,1)
+		c.Assert(err,IsNil)
+	}
+
+	time.Sleep(2*time.Second)
+
+	for _,mess := range res.Messages {
+		_, err = q.DeleteMessage(mess.ReceiptHandle)
+		c.Assert(err,IsNil)
+	}
+
+	res, err = q.ReceiveMessage([]string{"All"},10,15)
+	c.Assert(err,IsNil)
+
+	for _,mess := range res.Messages {
+		_, err = q.DeleteMessage(mess.ReceiptHandle)
+		c.Assert(err,IsNil)
+	}
 }
 
 func (s *S) TestSendReceiveDeleteMessage(c *C) {
