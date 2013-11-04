@@ -12,7 +12,6 @@ import (
 	"launchpad.net/goamz/aws"
 	. "launchpad.net/gocheck"
 	"sdk/sqs/sqs"
-	//"testing"
 	"time"
 )
 
