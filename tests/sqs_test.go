@@ -3,60 +3,52 @@ package tests
 import (
 	"fmt"
 	"launchpad.net/goamz/aws"
-	. "launchpad.net/gocheck"
+	"launchpad.net/gocheck"
 	"sdk/sqs/sqs"
 	"strconv"
 	"time"
 )
 
-var _ = Suite(&S{})
+var _ = gocheck.Suite(&SqsSimpleTestSuite{})
 
-type S struct {
+type SqsSimpleTestSuite struct {
 	sqs   *sqs.SQS
-	qName string
 }
 
-func (s *S) SetUpSuite(c *C) {
+func (s *SqsSimpleTestSuite) SetUpSuite(c *gocheck.C) {
 	auth := aws.Auth{"abc", "123"}
 	s.sqs = sqs.New(auth, aws.Region{SQSEndpoint: "http://sqs.us-east-1.amazonaws.com"})
 	qName := fmt.Sprintf("testqueue%v", time.Now())
 	fmt.Println(qName)
 }
 
-func (self *S) createQueue(qName string) (queue *sqs.Queue, err error) {
-	timeOutAttribute := sqs.Attribute{"VisibilityTimeout", "60"}
-	maxMessageSizeAttribute := sqs.Attribute{"MaximumMessageSize", "65536"}
-	messageRetentionAttribute := sqs.Attribute{"MessageRetentionPeriod", "345600"}
-	delaySeconds := sqs.Attribute{"DelaySeconds", "60"}
-
-	return self.sqs.CreateQueue(qName, []sqs.Attribute{timeOutAttribute, maxMessageSizeAttribute, messageRetentionAttribute, delaySeconds})
-
+func (self *SqsSimpleTestSuite) createQueue(qName string,attributes []sqs.Attribute) (queue *sqs.Queue, err error) {
+	return self.sqs.CreateQueue(qName, attributes)
 }
 
-func (self *S) deleteQueue(qName string) error {
+func (self *SqsSimpleTestSuite) deleteQueue(qName string) error {
 	q, err := self.sqs.GetQueue(qName)
 	_, err = q.Delete()
 	return err
 }
 
-func (s *S) TestCreateAndDeleteQueue(c *C) {
+func (self *SqsSimpleTestSuite) TestCreateAndDeleteQueue(c *gocheck.C) {
 	qName := fmt.Sprintf("CreateAndDeleteQueue%v", time.Now().UnixNano())
-	q, err := s.createQueue(qName)
+	_, err := self.sqs.CreateQueue(qName,[]sqs.Attribute{})
+	c.Assert(err, gocheck.IsNil)
 
-	c.Assert(q.Url, Equals, fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s", qName))
-	c.Assert(err, IsNil)
-
-	s.deleteQueue(qName)
+	self.deleteQueue(qName)
 }
 
-func (s *S) TestListQueues(c *C) {
+func (s *SqsSimpleTestSuite) TestListQueues(c *gocheck.C) {
 	qName := fmt.Sprintf("TestListQueues%v", time.Now().UnixNano())
-	_, err := s.createQueue(qName)
+	q, err := s.createQueue(qName,[]sqs.Attribute{})
 
 	resp, err := s.sqs.ListQueues()
-	c.Assert(err, IsNil)
-	c.Assert(len(resp.QueueUrl), Not(Equals), 0)
-	single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s", qName)
+	c.Assert(err, gocheck.IsNil)
+	c.Assert(len(resp.QueueUrl), gocheck.Not(gocheck.Equals), 0)
+	//single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s", qName)
+	single_url := q.Url
 	exist := false
 	for _, one_url := range resp.QueueUrl {
 		if one_url == single_url {
@@ -65,65 +57,118 @@ func (s *S) TestListQueues(c *C) {
 		}
 	}
 
-	c.Assert(exist, Equals, true)
+	c.Assert(exist, gocheck.Equals, true)
 	s.deleteQueue(qName)
 }
 
-func (s *S) TestGetQueueUrl(c *C) {
+func (s *SqsSimpleTestSuite) TestGetQueueUrl(c *gocheck.C) {
 	qName := fmt.Sprintf("TestGetQueueUrl%v", time.Now().UnixNano())
-	_, err := s.createQueue(qName)
-	single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s", qName)
+	q, err := s.createQueue(qName,[]sqs.Attribute{})
+	single_url := q.Url
 	defer s.deleteQueue(qName)
 
 	resp, err := s.sqs.GetQueueUrl(qName)
-	c.Assert(err, IsNil)
-	c.Assert(resp.QueueUrl, Equals, single_url)
+	c.Assert(err, gocheck.IsNil)
+	c.Assert(resp.QueueUrl, gocheck.Equals, single_url)
 }
 
-func (s *S) TestChangeMessageVisibility(c *C) {
+func (s *SqsSimpleTestSuite) TestChangeMessageVisibility(c *gocheck.C) {
 	qName := fmt.Sprintf("TestChangeMessageVisibility%v", time.Now().UnixNano())
-	q, err := s.createQueue(qName)
-	//single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName)
+	q, err := s.createQueue(qName,[]sqs.Attribute{})
 	defer s.deleteQueue(qName)
 
 	_, err = q.SendMessage("Hello World")
-	c.Assert(err,IsNil)
+	c.Assert(err,gocheck.IsNil)
 
 	res,err := q.ReceiveMessage([]string{"All"}, 1, 15)
-	c.Assert(err,IsNil)
+	c.Assert(err,gocheck.IsNil)
 
-	c.Assert(len(res.Messages)>0, Equals, true)
+	c.Assert(len(res.Messages)>0, gocheck.Equals, true)
 
 	for _,mess := range res.Messages {
 		_, err = q.ChangeMessageVisibility(mess.ReceiptHandle,1)
-		c.Assert(err,IsNil)
+		c.Assert(err,gocheck.IsNil)
 	}
 
 	time.Sleep(2*time.Second)
 
 	for _,mess := range res.Messages {
 		_, err = q.DeleteMessage(mess.ReceiptHandle)
-		c.Assert(err,IsNil)
+		c.Assert(err,gocheck.IsNil)
 	}
 
 	res, err = q.ReceiveMessage([]string{"All"},10,15)
-	c.Assert(err,IsNil)
+	c.Assert(err,gocheck.IsNil)
 
 	for _,mess := range res.Messages {
 		_, err = q.DeleteMessage(mess.ReceiptHandle)
-		c.Assert(err,IsNil)
+		c.Assert(err,gocheck.IsNil)
 	}
 }
 
-func (s *S) TestSendReceiveDeleteMessage(c *C) {
+
+func (self *SqsSimpleTestSuite) TestMessageVisibilityBatch(c *gocheck.C) {
+	qName := fmt.Sprintf("testMessageVisibilityBatch%v",time.Now().UnixNano())
+	q, err := self.sqs.CreateQueue(qName,[]sqs.Attribute{})
+	defer self.deleteQueue(qName)
+
+	testNum := 9
+	var sendMessageBatchRequests []sqs.SendMessageBatchRequestEntry
+	for i := 0; i < testNum; i++ {
+		sendMessage := sqs.SendMessageBatchRequestEntry{
+			Id:           fmt.Sprintf("batchtest%d", i),
+			MessageBody:  "hello",
+			DelaySeconds: 0,
+		}
+
+		sendMessageBatchRequests = append(sendMessageBatchRequests, sendMessage)
+	}
+	response, err := q.SendMessageBatch(sendMessageBatchRequests)
+	c.Assert(err, gocheck.IsNil)
+	fmt.Println(response)
+
+
+	res, err := q.ReceiveMessage(nil, 10, testNum)
+	c.Assert(err, gocheck.IsNil)
+	c.Assert(len(res.Messages), gocheck.Equals, testNum)
+
+	var messageVisibilityBatch []sqs.ChangeMessageVisibilityBatchEntry
+
+	for id,message := range res.Messages {
+		fmt.Printf("%+v",message)
+		curMessage := sqs.ChangeMessageVisibilityBatchEntry {Id:fmt.Sprintf("%d_%s",id,message.MessageId),
+										   ReceiptHandle:message.ReceiptHandle,
+			VisibilityTimeout:2}
+		messageVisibilityBatch = append(messageVisibilityBatch,curMessage)
+	}
+
+	cresponse,err := q.ChangeMessageVisibilityBatch(messageVisibilityBatch)
+	c.Assert(err,gocheck.IsNil)
+	fmt.Println()
+	fmt.Println()
+	fmt.Printf("%+v\n",cresponse)
+	c.Assert(len(cresponse.Id),gocheck.Equals,testNum)
+
+
+	time.Sleep(3*time.Second)
+
+	//change will failed when message inflight is timeout
+	c2response,err := q.ChangeMessageVisibilityBatch(messageVisibilityBatch)
+	c.Assert(err,gocheck.IsNil)
+
+	fmt.Printf("%+v\n",c2response)
+	c.Assert(len(c2response.Id),gocheck.Equals,0)
+
+}
+
+func (s *SqsSimpleTestSuite) TestSendReceiveDeleteMessage(c *gocheck.C) {
 	qName := fmt.Sprintf("TestSendReceiveDeleteMessage%v", time.Now().UnixNano())
-	q, err := s.createQueue(qName)
-	//single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName)
+	q, err := s.createQueue(qName,[]sqs.Attribute{})
 	defer s.deleteQueue(qName)
 
 	resp, err := q.ReceiveMessage([]string{"All"}, 5, 15)
-	c.Assert(err, IsNil)
-	c.Assert(len(resp.Messages), Equals, 0)
+	c.Assert(err, gocheck.IsNil)
+	c.Assert(len(resp.Messages), gocheck.Equals, 0)
 
 	total := 100
 	step := 5
@@ -134,32 +179,31 @@ func (s *S) TestSendReceiveDeleteMessage(c *C) {
 
 	for i := 0; i < total/step; i++ {
 		resp, err := q.ReceiveMessage([]string{"All"}, step, 15)
-		c.Assert(err, IsNil)
-		c.Assert(len(resp.Messages), Equals, step)
+		c.Assert(err, gocheck.IsNil)
+		c.Assert(len(resp.Messages), gocheck.Equals, step)
 
 		for _, v := range resp.Messages {
 			_, err := q.DeleteMessage(v.ReceiptHandle)
-			c.Assert(err, IsNil)
+			c.Assert(err, gocheck.IsNil)
 		}
 
 	}
 
 	resp, err = q.ReceiveMessage([]string{"All"}, step, 15)
-	c.Assert(err, IsNil)
-	c.Assert(len(resp.Messages), Equals, 0)
+	c.Assert(err, gocheck.IsNil)
+	c.Assert(len(resp.Messages), gocheck.Equals, 0)
 
 }
 
-func (s *S) TestDeleteMessageBatch(c *C) {
+func (s *SqsSimpleTestSuite) TestDeleteMessageBatch(c *gocheck.C) {
 
 	qName := fmt.Sprintf("TestDeleteMessageBatch%v", time.Now().UnixNano())
-	q, err := s.createQueue(qName)
-	//single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName)
+	q, err := s.createQueue(qName,[]sqs.Attribute{})
 	defer s.deleteQueue(qName)
 
 	resp, err := q.ReceiveMessage([]string{"All"}, 5, 15)
-	c.Assert(err, IsNil)
-	c.Assert(len(resp.Messages), Equals, 0)
+	c.Assert(err, gocheck.IsNil)
+	c.Assert(len(resp.Messages), gocheck.Equals, 0)
 
 	total := 100
 	step := 5
@@ -170,8 +214,8 @@ func (s *S) TestDeleteMessageBatch(c *C) {
 
 	for i := 0; i < total/step; i++ {
 		resp, err := q.ReceiveMessage([]string{"All"}, step, 15)
-		c.Assert(err, IsNil)
-		c.Assert(len(resp.Messages), Equals, step)
+		c.Assert(err, gocheck.IsNil)
+		c.Assert(len(resp.Messages), gocheck.Equals, step)
 
 		deleteMessageBatch := make([]sqs.DeleteMessageBatch, 0)
 
@@ -181,133 +225,95 @@ func (s *S) TestDeleteMessageBatch(c *C) {
 
 		{
 			_, err := q.DeleteMessageBatch(deleteMessageBatch)
-			c.Assert(err, IsNil)
+			c.Assert(err, gocheck.IsNil)
 		}
 
 	}
 
 	resp, err = q.ReceiveMessage([]string{"All"}, step, 15)
-	c.Assert(err, IsNil)
-	c.Assert(len(resp.Messages), Equals, 0)
+	c.Assert(err, gocheck.IsNil)
+	c.Assert(len(resp.Messages), gocheck.Equals, 0)
 }
 
-/*
-func (s *S) TestChangeMessageVisibilityBatch(c *C) {
-	testServer.PrepareResponse(200, nil, TestCreateQueueXmlOK)
-
-	timeOutAttribute := sqs.Attribute{"VisibilityTimeout", "60"}
-	maxMessageSizeAttribute := sqs.Attribute{"MaximumMessageSize", "65536"}
-	messageRetentionAttribute := sqs.Attribute{"MessageRetentionPeriod", "345600"}
-	q, err := s.sqs.CreateQueue("testQueue", []sqs.Attribute{timeOutAttribute, maxMessageSizeAttribute, messageRetentionAttribute})
-	testServer.WaitRequest()
-
-	testServer.PrepareResponse(200, nil, TestChangeMessaveVisibilityBatchXmlOK)
-
-	messageVisibilityBatch := []sqs.ChangeMessageVisibilityBatchEntry{sqs.ChangeMessageVisibilityBatchEntry{"change_visibility_msg_2", "gfk0T0R0waama4fVFffkjKzmhMCymjQvfTFk2LxT33G4ms5subrE0deLKWSscPU1oD3J9zgeS4PQQ3U30qOumIE6AdAv3w%2F%2Fa1IXW6AqaWhGsEPaLm3Vf6IiWqdM8u5imB%2BNTwj3tQRzOWdTOePjOjPcTpRxBtXix%2BEvwJOZUma9wabv%2BSw6ZHjwmNcVDx8dZXJhVp16Bksiox%2FGrUvrVTCJRTWTLc59oHLLF8sEkKzRmGNzTDGTiV%2BYjHfQj60FD3rVaXmzTsoNxRhKJ72uIHVMGVQiAGgBX6HGv9LDmYhPXw4hy%2FNgIg%3D%3D", 45}, sqs.ChangeMessageVisibilityBatchEntry{"change_visibility_msg_3", "gfk0T0R0waama4fVFffkjKzmhMCymjQvfTFk2LxT33FUgBz3%2BnougdeLKWSscPU1%2FXgx%2BxcNnjnQQ3U30qOumIE6AdAv3w%2F%2Fa1IXW6AqaWhGsEPaLm3Vf6IiWqdM8u5imB%2BNTwj3tQRzOWdTOePjOsogjZM%2F7kzn4Ew27XLU9I%2FYaWYmKvDbq%2Fk3HKVB9HfB43kE49atP2aWrzNL4yunG41Q4cfRRtfJdcGQGNHQ2%2Byd0Usf5qR1dZr1iDo5xk946eQat83AxTRP%2BY4Qi0V7FAeSLH9su9xpX6HGv9LDmYhPXw4hy%2FNgIg%3D%3D", 45}}
-	resp, err := q.ChangeMessageVisibilityBatch(messageVisibilityBatch)
-	testServer.WaitRequest()
-	c.Assert(err, IsNil)
-	c.Assert(resp.ResponseMetadata.RequestId, Equals, "ca9668f7-ab1b-4f7a-8859-f15747ab17a7")
-	c.Assert(resp.Id[0], Equals, "change_visibility_msg_2")
-	c.Assert(resp.Id[1], Equals, "change_visibility_msg_3")
-}
-
-
-
-func (s *S) TestSendMessageWithDelay(c *C) {
-	testServer.PrepareResponse(200, nil, TestGetQueueUrlXmlOK)
-
-	q, err := s.sqs.GetQueue("testQueue")
-	testServer.WaitRequest()
-
-	testServer.PrepareResponse(200, nil, TestSendMessageXmlOK)
-
-	resp, err := q.SendMessageWithDelay("This is a Message", 60)
-	testServer.WaitRequest()
-	c.Assert(err, IsNil)
-	c.Assert(resp.SendMessageResult.MD5OfMessageBody, Equals, "fafb00f5732ab283681e124bf8747ed1")
-	c.Assert(resp.SendMessageResult.MessageId, Equals, "5fea7756-0ea4-451a-a703-a558b933e274")
-	c.Assert(resp.ResponseMetadata.RequestId, Equals, "27daac76-34dd-47df-bd01-1f6e873584a0")
-}
-*/
-
-func (s *S) TestGetQueueAttributes(c *C) {
+func (s *SqsSimpleTestSuite) TestGetQueueAttributes(c *gocheck.C) {
 
 	qName := fmt.Sprintf("TestGetQueueAttributes%v", time.Now().UnixNano())
-	q, err := s.createQueue(qName)
-	//single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName)
+	q, err := s.createQueue(qName,[]sqs.Attribute{})
 	defer s.deleteQueue(qName)
 
 	resp, err := q.GetQueueAttributes([]string{"ALL"})
 
-	c.Assert(err, IsNil)
-	c.Assert(len(resp.Attributes), Equals, 4)
+	c.Assert(err, gocheck.IsNil)
+	c.Assert(len(resp.Attributes), gocheck.Equals, 0)
 
 }
 
-func (s *S) TestAddPermission(c *C) {
+func (s *SqsSimpleTestSuite) TestAddPermission(c *gocheck.C) {
 	qName := fmt.Sprintf("TestAddPermission%v", time.Now().UnixNano())
-	q, err := s.createQueue(qName)
-	//single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName)
+	q, err := s.createQueue(qName,[]sqs.Attribute{})
 	defer s.deleteQueue(qName)
 
 	_, err = q.AddPermission("testLabel", []sqs.AccountPermission{sqs.AccountPermission{"125074342641", "SendMessage"}, sqs.AccountPermission{"125074342642", "ReceiveMessage"}})
 
-	c.Assert(err, IsNil)
+	c.Assert(err, gocheck.IsNil)
 
 }
 
-func (s *S) TestRemovePermission(c *C) {
+func (self *SqsSimpleTestSuite) TestRemovePermission(c *gocheck.C) {
 	qName := fmt.Sprintf("TestRemovePermission%v", time.Now().UnixNano())
-	q, err := s.createQueue(qName)
-	//single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName)
-	defer s.deleteQueue(qName)
+	q, err := self.createQueue(qName,[]sqs.Attribute{})
+	defer self.deleteQueue(qName)
 	_, err = q.AddPermission("testLabel", []sqs.AccountPermission{sqs.AccountPermission{"125074342641", "SendMessage"}, sqs.AccountPermission{"125074342642", "ReceiveMessage"}})
 	_, err = q.RemovePermission("testLabel")
 
-	c.Assert(err, IsNil)
+	c.Assert(err, gocheck.IsNil)
 
 }
 
-func (s *S) TestGetQueueAttributesSelective(c *C) {
+func (self *SqsSimpleTestSuite) TestGetQueueAttributesSelective(c *gocheck.C) {
 	qName := fmt.Sprintf("TestGetQueueAttributesSelective%v", time.Now().UnixNano())
-	q, err := s.createQueue(qName)
-	//single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName)
-	defer s.deleteQueue(qName)
+	timeOut := "60"
+	maxMssageSize := "65536"
+	messageRetention := "345600"
+	delaySe := "60"
+	timeOutAttribute := sqs.Attribute{"VisibilityTimeout", timeOut}
+	maxMessageSizeAttribute := sqs.Attribute{"MaximumMessageSize", maxMssageSize}
+	messageRetentionAttribute := sqs.Attribute{"MessageRetentionPeriod", messageRetention}
+	delaySeconds := sqs.Attribute{"DelaySeconds",delaySe}
+
+	q,err := self.sqs.CreateQueue(qName, []sqs.Attribute{timeOutAttribute, maxMessageSizeAttribute, messageRetentionAttribute, delaySeconds})
+	defer self.deleteQueue(qName)
 	resp, err := q.GetQueueAttributes([]string{"VisibilityTimeout", "DelaySeconds"})
 
-	c.Assert(err, IsNil)
-	c.Assert(len(resp.Attributes), Equals, 2)
-	// c.Assert(resp.Attributes[0].Name, Equals, "VisibilityTimeout")
-	c.Assert(resp.Attributes[0].Value, Equals, "60")
-	// c.Assert(resp.Attributes[1].Name, Equals, "DelaySeconds")
-	c.Assert(resp.Attributes[1].Value, Equals, "60")
+	c.Assert(err, gocheck.IsNil)
+	c.Assert(len(resp.Attributes), gocheck.Equals, 2)
+	c.Assert(resp.Attributes[0].Value, gocheck.Equals, timeOut)
+	c.Assert(resp.Attributes[1].Value, gocheck.Equals, delaySe)
 
 }
 
-func (s *S) TestSetQueueAttributes(c *C) {
+func (self *SqsSimpleTestSuite) TestSetQueueAttributes(c *gocheck.C) {
 
-	qName := "TestSetQueueAttributes"
-	q, err := s.createQueue(qName)
-	//single_url := fmt.Sprintf("http://sqs.us-east-1.amazonaws.com/123456789012/%s",qName)
-	defer s.deleteQueue(qName)
+	qName := fmt.Sprintf("TestSetQueueAttributes%v",time.Now().UnixNano())
+	q, err := self.sqs.CreateQueue(qName,[]sqs.Attribute{})
+	defer self.deleteQueue(qName)
 
 	var policyStr = `
-  {
-        "Version":"2008-10-17",
-        "Id":"/123456789012/TestSetQueueAttributes/SQSDefaultPolicy",
-        "Statement":  [
-             {
-             "Sid":"Queue1ReceiveMessage",
-             "Effect":"Allow",
-             "Principal":{"AWS":"*"},
-             "Action":"SQS:ReceiveMessage",
-             "Resource":"arn:aws:sqs:us-east-1:123456789012:testQueue"
-              }
-         ]
-   }
+	  {
+			"Version":"2008-10-17",
+			"Id":"/123456789012/TestSetQueueAttributes/SQSDefaultPolicy",
+			"Statement":  [
+				 {
+				 "Sid":"Queue1ReceiveMessage",
+				 "Effect":"Allow",
+				 "Principal":{"AWS":"*"},
+				 "Action":"SQS:ReceiveMessage",
+				 "Resource":"arn:aws:sqs:us-east-1:123456789012:testQueue"
+				  }
+			 ]
+	   }
   `
 	_, err = q.SetQueueAttributes(sqs.Attribute{"Policy", policyStr})
 
-	c.Assert(err, IsNil)
+	c.Assert(err, gocheck.IsNil)
 }
